@@ -15,7 +15,8 @@ enum thread_status {
 	THREAD_RUNNING,     /* Running thread. */
 	THREAD_READY,       /* Not running but ready to run. */
 	THREAD_BLOCKED,     /* Waiting for an event to trigger. */
-	THREAD_DYING        /* About to be destroyed. */
+	THREAD_DYING,        /* About to be destroyed. */
+	THREAD_SLEEP		/* 자고 있는 스레드 */
 };
 
 /* Thread identifier type.
@@ -95,6 +96,10 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
+ 	int64_t wake_ticks;					/*잠든 스레드가 깨어날 시간*/
+	struct list_elem sleep_elem;		/*sleep_list에 들어가기 위한 변수*/
+	
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -114,6 +119,8 @@ struct thread {
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
+struct list* get_ready_list(void);
+
 void thread_init (void);
 void thread_start (void);
 
@@ -122,6 +129,8 @@ void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
 tid_t thread_create (const char *name, int priority, thread_func *, void *);
+
+void do_schedule(int status);
 
 void thread_block (void);
 void thread_unblock (struct thread *);

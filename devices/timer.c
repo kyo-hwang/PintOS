@@ -20,6 +20,9 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+/*자고 있는 스레드를 저장할 큐*/
+static struct list sleep_list;
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -41,8 +44,10 @@ timer_init (void) {
 	outb (0x43, 0x34);    /* CW: counter 0, LSB then MSB, mode 2, binary. */
 	outb (0x40, count & 0xff);
 	outb (0x40, count >> 8);
-
+	
 	intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+
+	list_init (&sleep_list); 
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -93,8 +98,39 @@ timer_sleep (int64_t ticks) {
 	int64_t start = timer_ticks ();
 
 	ASSERT (intr_get_level () == INTR_ON);
-	while (timer_elapsed (start) < ticks)
-		thread_yield ();
+	int64_t ticks_wake = start+ticks;
+
+	enum intr_level old_level = intr_disable ();
+	//일어날 timer ticks에 도달할 때 까지 sleep
+	sleep_thread(ticks_wake);
+	intr_set_level (old_level);
+}
+
+
+/*wake_ticks기준으로 작은 것 비교*/
+void 
+compare_with_wake_ticks(const struct list_elem *a,const struct list_elem *b, void *aux){
+	struct thread* thread1 = list_entry(a, struct thread, sleep_elem);
+	struct thread* thread2 = list_entry(b, struct thread, sleep_elem);
+	printf("compare %d\n",thread1->wake_ticks);
+	printf("compare %d\n",thread2->wake_ticks);
+
+	return thread1->wake_ticks<thread2->wake_ticks;
+}
+
+void
+sleep_thread(int64_t ticks_wake){
+	struct thread *cur = thread_current ();
+	enum intr_level old_level;
+	old_level = intr_disable ();
+
+	cur->wake_ticks = ticks_wake;
+
+	list_push_back(&sleep_list,&(cur->sleep_elem));
+
+
+	do_schedule (THREAD_SLEEP);
+	intr_set_level (old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -126,6 +162,25 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
+
+	enum intr_level old_level = intr_disable ();
+	wake_threads(ticks);
+	intr_set_level (old_level);
+}
+
+/*깨울 시간에 도달한 스레드들을 깨운다.*/
+void
+wake_threads(int64_t ticks_current){
+	for(struct list_elem *cur=list_begin(&sleep_list); cur!=list_end(&sleep_list); cur=list_next(cur)){
+		struct thread* thread_to_check = list_entry(cur, struct thread, sleep_elem);
+		if(thread_to_check->wake_ticks<=ticks_current){
+			struct list_elem* before_elem = cur->prev;
+			list_remove(cur);
+
+			list_push_back(get_ready_list(),&(thread_to_check->elem));
+			cur = before_elem;
+		}
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

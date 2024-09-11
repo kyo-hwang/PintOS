@@ -28,6 +28,7 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -59,7 +60,7 @@ static void kernel_thread (thread_func *, void *aux);
 static void idle (void *aux UNUSED);
 static struct thread *next_thread_to_run (void);
 static void init_thread (struct thread *, const char *name, int priority);
-static void do_schedule(int status);
+void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
 
@@ -78,6 +79,10 @@ static tid_t allocate_tid (void);
 // Because the gdt will be setup after the thread_init, we should
 // setup temporal gdt first.
 static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
+
+struct list* get_ready_list(void){
+	return &ready_list;
+}
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -129,6 +134,7 @@ thread_start (void) {
 	/* Start preemptive thread scheduling. */
 	intr_enable ();
 
+	/*idle thread가 실행될때 까지 대기*/
 	/* Wait for the idle thread to initialize idle_thread. */
 	sema_down (&idle_started);
 }
@@ -307,6 +313,7 @@ thread_yield (void) {
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
+
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
@@ -525,7 +532,7 @@ thread_launch (struct thread *th) {
  * This function modify current thread's status to status and then
  * finds another thread to run and switches to it.
  * It's not safe to call printf() in the schedule(). */
-static void
+void
 do_schedule(int status) {
 	ASSERT (intr_get_level () == INTR_OFF);
 	ASSERT (thread_current()->status == THREAD_RUNNING);
