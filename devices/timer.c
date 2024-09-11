@@ -118,6 +118,7 @@ compare_with_wake_ticks(const struct list_elem *a,const struct list_elem *b, voi
 	return thread1->wake_ticks<thread2->wake_ticks;
 }
 
+/*스레드를 재운다.*/
 void
 sleep_thread(int64_t ticks_wake){
 	struct thread *cur = thread_current ();
