@@ -201,7 +201,7 @@ thread_create (const char *name, int priority,
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
-	t->tf.rip = (uintptr_t) kernel_thread;
+	t->tf.rip = (uintptr_t) kernel_thread; /*다음 실행할 명령어 포인터 즉 이 스레드는 최초에 kernel_thread를 사용할 것이다.*/
 	t->tf.R.rdi = (uint64_t) function;
 	t->tf.R.rsi = (uint64_t) aux;
 	t->tf.ds = SEL_KDSEG;
@@ -211,7 +211,7 @@ thread_create (const char *name, int priority,
 	t->tf.eflags = FLAG_IF;
 
 	/* Add to run queue. */
-	thread_unblock (t);
+	thread_unblock_and_preempt (t);
 
 	return tid;
 }
@@ -249,6 +249,50 @@ thread_unblock (struct thread *t) {
 	list_push_back (&ready_list, &t->elem);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
+}
+
+/*thread를 대기 큐에 삽입하고 우선 순위에 따라 선점한다.*/
+void
+thread_unblock_and_preempt(struct thread* t){
+	enum intr_level old_level;
+
+	old_level = intr_disable();
+
+	thread_unblock(t);
+
+	preempt_thread_max_priorty();
+	intr_set_level(old_level);
+}
+
+//현재 스레드가 레디 큐에 있는 우선 순위가 가장 높은 스레드보다 낮으면 우선 순위 변경
+void
+preempt_thread_max_priorty(){
+	struct thread* thread_max_in_ready = thread_find_max_priority();
+	if(thread_max_in_ready==NULL){
+		return;
+	}
+
+	if(thread_current()->priority< thread_max_in_ready->priority){
+		thread_yield();
+	}
+}
+
+/*레디큐에서 우선 순위가 가장 높은 스레드를 찾는다.*/
+struct thread*
+thread_find_max_priority(){
+	if(list_empty(&ready_list)){
+		return NULL;
+	}
+	return list_max(&ready_list,compare_priority_less,NULL);
+}
+
+/*e1가 e2보다 우선순위가 낮은지 비교*/
+bool
+compare_priority_less(struct list_elem* e1,struct list_elem* e2,void* aux){
+	int e1_priority = list_entry(e1,struct thread,elem)->priorty;
+	int e2_priority = list_entry(e2,struct thread,elem)->priorty;
+
+	return e1_priority<e2_priority;
 }
 
 /* Returns the name of the running thread. */
@@ -423,8 +467,8 @@ init_thread (struct thread *t, const char *name, int priority) {
    empty.  (If the running thread can continue running, then it
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
-static struct thread *
 next_thread_to_run (void) {
+static struct thread *
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else
@@ -435,8 +479,8 @@ next_thread_to_run (void) {
 void
 do_iret (struct intr_frame *tf) {
 	__asm __volatile(
-			"movq %0, %%rsp\n"
-			"movq 0(%%rsp),%%r15\n"
+			"movq %0, %%rsp\n" //tf의 주소를 rsp로 옮긴다.
+			"movq 0(%%rsp),%%r15\n" //tf에 저장되어 있던 값을 레지스터에 복구 시킨다.
 			"movq 8(%%rsp),%%r14\n"
 			"movq 16(%%rsp),%%r13\n"
 			"movq 24(%%rsp),%%r12\n"
@@ -488,7 +532,7 @@ thread_launch (struct thread *th) {
 			/* Fetch input once */
 			"movq %0, %%rax\n"
 			"movq %1, %%rcx\n"
-			"movq %%r15, 0(%%rax)\n"
+			"movq %%r15, 0(%%rax)\n" /*레지스터 값을 interrupt frame 의 각 변수에 저장*/
 			"movq %%r14, 8(%%rax)\n"
 			"movq %%r13, 16(%%rax)\n"
 			"movq %%r12, 24(%%rax)\n"
@@ -500,31 +544,31 @@ thread_launch (struct thread *th) {
 			"movq %%rdi, 72(%%rax)\n"
 			"movq %%rbp, 80(%%rax)\n"
 			"movq %%rdx, 88(%%rax)\n"
-			"pop %%rbx\n"              // Saved rcx
+			"pop %%rbx\n"              // Saved rcx 저장, 기존에 rcx값을 다른 값으로 덮어썼기 때문에 스택에 있는 값으로 복원시킨 것임.
 			"movq %%rbx, 96(%%rax)\n"
 			"pop %%rbx\n"              // Saved rbx
 			"movq %%rbx, 104(%%rax)\n"
 			"pop %%rbx\n"              // Saved rax
 			"movq %%rbx, 112(%%rax)\n"
-			"addq $120, %%rax\n"
+			"addq $120, %%rax\n" //rax값에 120을 더하고 es ds값 메모리에 저장. es,ds는 세그먼트 레지스터
 			"movw %%es, (%%rax)\n"
 			"movw %%ds, 8(%%rax)\n"
 			"addq $32, %%rax\n"
-			"call __next\n"         // read the current rip.
+			"call __next\n"         // read the current rip. 
 			"__next:\n"
 			"pop %%rbx\n"
 			"addq $(out_iret -  __next), %%rbx\n"
-			"movq %%rbx, 0(%%rax)\n" // rip
+			"movq %%rbx, 0(%%rax)\n" // rip. rip(명령어 포인터)를 읽어 스택에 넣은 후 rbx에 저장.
 			"movw %%cs, 8(%%rax)\n"  // cs
 			"pushfq\n"
 			"popq %%rbx\n"
 			"mov %%rbx, 16(%%rax)\n" // eflags
 			"mov %%rsp, 24(%%rax)\n" // rsp
 			"movw %%ss, 32(%%rax)\n"
-			"mov %%rcx, %%rdi\n"
+			"mov %%rcx, %%rdi\n" // do_iret의 매개변수 tf로 선언
 			"call do_iret\n"
 			"out_iret:\n"
-			: : "g"(tf_cur), "g" (tf) : "memory"
+			: : "g"(tf_cur), "g" (tf) : "memory" //입력 변수 플레이스 홀더  $0 = tf_cur $1 = tf
 			);
 }
 
