@@ -128,7 +128,7 @@ void
 thread_start (void) {
 	/* Create the idle thread. */
 	struct semaphore idle_started;
-	sema_init (&idle_started, 0);
+	sema_init (&idle_started, 0); //이거 thread_create() 아래로 바꿔져 있었음.
 	thread_create ("idle", PRI_MIN, idle, &idle_started);
 
 	/* Start preemptive thread scheduling. */
@@ -209,9 +209,12 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+	// printf("셍성할때 %d\n",t->priority);
 
 	/* Add to run queue. */
-	thread_unblock_and_preempt (t);
+	thread_unblock(t);
+
+	check_preemption();
 
 	return tid;
 }
@@ -246,7 +249,7 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered(&ready_list,&t->elem,compare_priority_high,NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -254,26 +257,39 @@ thread_unblock (struct thread *t) {
 /*thread를 대기 큐에 삽입하고 우선 순위에 따라 선점한다.*/
 void
 thread_unblock_and_preempt(struct thread* t){
-	enum intr_level old_level;
+	// enum intr_level old_level;
 
-	old_level = intr_disable();
+	// old_level = intr_disable();
 
 	thread_unblock(t);
 
-	preempt_thread_max_priorty();
-	intr_set_level(old_level);
+	check_preemption();
+	// intr_set_level(old_level);
 }
 
 //현재 스레드가 레디 큐에 있는 우선 순위가 가장 높은 스레드보다 낮으면 우선 순위 변경
 void
 preempt_thread_max_priorty(){
 	struct thread* thread_max_in_ready = thread_find_max_priority();
+	printf("선점하기 위함 %d\n",thread_max_in_ready->name);
 	if(thread_max_in_ready==NULL){
 		return;
 	}
 
-	if(thread_current()->priority< thread_max_in_ready->priority){
+	if(thread_current()->priority < thread_max_in_ready->priority){
 		thread_yield();
+	}
+}
+
+void 
+check_preemption(void){
+	// msg("inter cont %d\n",intr_context());
+	if(!list_empty(&ready_list)){
+		int highest_priority = list_entry(list_begin(&ready_list), struct thread, elem)->priority;
+		if(highest_priority > thread_current()->priority){
+			// printf("cur: %d highest: %d",highest_priority,thread_current()->priority);
+			thread_yield();
+		}
 	}
 }
 
@@ -283,17 +299,28 @@ thread_find_max_priority(){
 	if(list_empty(&ready_list)){
 		return NULL;
 	}
-	return list_max(&ready_list,compare_priority_less,NULL);
+	return list_entry(list_max(&ready_list,compare_priority_less,NULL),struct thread,elem);
+	// return list_entry(list_begin(&ready_list), struct thread, elem);
 }
 
 /*e1가 e2보다 우선순위가 낮은지 비교*/
 bool
 compare_priority_less(struct list_elem* e1,struct list_elem* e2,void* aux){
-	int e1_priority = list_entry(e1,struct thread,elem)->priorty;
-	int e2_priority = list_entry(e2,struct thread,elem)->priorty;
+	int e1_priority = list_entry(e1,struct thread,elem)->priority;
+	int e2_priority = list_entry(e2,struct thread,elem)->priority;
 
 	return e1_priority<e2_priority;
 }
+
+/*e1가 e2보다 우선순위가 낮은지 비교*/
+bool
+compare_priority_high(struct list_elem* e1,struct list_elem* e2,void* aux){
+	int e1_priority = list_entry(e1,struct thread,elem)->priority;
+	int e2_priority = list_entry(e2,struct thread,elem)->priority;
+
+	return e1_priority>e2_priority;
+}
+
 
 /* Returns the name of the running thread. */
 const char *
@@ -353,7 +380,8 @@ thread_yield (void) {
 
 	old_level = intr_disable ();
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem,compare_priority_high,NULL);
+		// list_push_back (&ready_list, &curr->elem);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -459,6 +487,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->original_priority = priority;
 	t->magic = THREAD_MAGIC;
 }
 
@@ -467,8 +496,8 @@ init_thread (struct thread *t, const char *name, int priority) {
    empty.  (If the running thread can continue running, then it
    will be in the run queue.)  If the run queue is empty, return
    idle_thread. */
-next_thread_to_run (void) {
 static struct thread *
+next_thread_to_run (void) {
 	if (list_empty (&ready_list))
 		return idle_thread;
 	else

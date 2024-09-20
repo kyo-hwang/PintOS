@@ -21,6 +21,7 @@
 #include "threads/palloc.h"
 #include "threads/pte.h"
 #include "threads/thread.h"
+#include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/exception.h"
@@ -80,6 +81,8 @@ main (void) {
 	/* Initialize ourselves as a thread so we can use locks,
 	   then enable console locking. */
 	thread_init ();
+	msg("thread_init complete");
+	printf("running thread %s\n",((struct thread *) (pg_round_down (rrsp ())))->name);
 	console_init ();
 
 	/* Initialize memory system. */

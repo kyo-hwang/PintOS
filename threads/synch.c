@@ -109,10 +109,15 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)){
+		thread_unblock(list_entry (list_pop_front (&sema->waiters),
+						struct thread, elem));
+
+	}
+						
+	//와 둘이 순서가 바뀌니까 안 돌아 갔었네...
 	sema->value++;
+	check_preemption();
 	intr_set_level (old_level);
 }
 
@@ -188,8 +193,23 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	enum intr_level old_level;
+	// old_level = intr_disable ();
+	struct thread* cur = thread_current();
+	// printf("!\n");
+	if(lock->holder != NULL){
+		if(lock->holder->priority<cur->priority){
+			// printf("!\n");
+			lock->holder->priority = cur->priority;
+		}
+		// printf("%d!!!!\n",lock->holder->priority);
+	}
+	// lock->holder->priority = 33;
+
 	sema_down (&lock->semaphore);
+	// intr_set_level (old_level);
 	lock->holder = thread_current ();
+	
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -223,6 +243,7 @@ lock_release (struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	lock->holder = NULL;
+	thread_current()->priority = thread_current()->original_priority;
 	sema_up (&lock->semaphore);
 }
 

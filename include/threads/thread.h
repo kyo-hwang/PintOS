@@ -92,6 +92,7 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
+	int original_priority;
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
@@ -149,6 +150,12 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct thread*
+thread_find_max_priority();
+bool compare_priority_less(struct list_elem* e1,struct list_elem* e2,void* aux);
+bool compare_priority_high(struct list_elem* e1,struct list_elem* e2,void* aux);
+void check_preemption(void);
 
 void do_iret (struct intr_frame *tf);
 
