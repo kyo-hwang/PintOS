@@ -66,7 +66,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered(&sema->waiters, &thread_current ()->elem,compare_priority_high,NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -110,14 +110,11 @@ sema_up (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	if (!list_empty (&sema->waiters)){
-		thread_unblock(list_entry (list_pop_front (&sema->waiters),
-						struct thread, elem));
-
+		thread_unblock(list_entry (list_pop_front (&sema->waiters),struct thread, elem));
 	}
 						
-	//와 둘이 순서가 바뀌니까 안 돌아 갔었네...
 	sema->value++;
-	check_preemption();
+	preempt_thread_max_priorty();
 	intr_set_level (old_level);
 }
 
@@ -194,20 +191,16 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!lock_held_by_current_thread (lock));
 
 	enum intr_level old_level;
-	// old_level = intr_disable ();
+	old_level = intr_disable ();
 	struct thread* cur = thread_current();
-	// printf("!\n");
 	if(lock->holder != NULL){
 		if(lock->holder->priority<cur->priority){
-			// printf("!\n");
 			lock->holder->priority = cur->priority;
 		}
-		// printf("%d!!!!\n",lock->holder->priority);
 	}
-	// lock->holder->priority = 33;
 
 	sema_down (&lock->semaphore);
-	// intr_set_level (old_level);
+	intr_set_level (old_level);
 	lock->holder = thread_current ();
 	
 }

@@ -127,8 +127,8 @@ thread_init (void) {
 void
 thread_start (void) {
 	/* Create the idle thread. */
-	struct semaphore idle_started;
-	sema_init (&idle_started, 0); //이거 thread_create() 아래로 바꿔져 있었음.
+	struct semaphore idle_started; 
+	sema_init (&idle_started, 0); 
 	thread_create ("idle", PRI_MIN, idle, &idle_started);
 
 	/* Start preemptive thread scheduling. */
@@ -212,9 +212,8 @@ thread_create (const char *name, int priority,
 	// printf("셍성할때 %d\n",t->priority);
 
 	/* Add to run queue. */
-	thread_unblock(t);
-
-	check_preemption();
+	// thread_unblock(t);
+	thread_unblock_and_preempt(t); //thread_unblock 대체
 
 	return tid;
 }
@@ -257,21 +256,21 @@ thread_unblock (struct thread *t) {
 /*thread를 대기 큐에 삽입하고 우선 순위에 따라 선점한다.*/
 void
 thread_unblock_and_preempt(struct thread* t){
-	// enum intr_level old_level;
+	enum intr_level old_level;
 
-	// old_level = intr_disable();
+	old_level = intr_disable();
 
 	thread_unblock(t);
 
-	check_preemption();
-	// intr_set_level(old_level);
+	preempt_thread_max_priorty();
+	intr_set_level(old_level);
 }
 
 //현재 스레드가 레디 큐에 있는 우선 순위가 가장 높은 스레드보다 낮으면 우선 순위 변경
 void
 preempt_thread_max_priorty(){
 	struct thread* thread_max_in_ready = thread_find_max_priority();
-	printf("선점하기 위함 %d\n",thread_max_in_ready->name);
+
 	if(thread_max_in_ready==NULL){
 		return;
 	}
@@ -487,7 +486,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	
 	t->original_priority = priority;
+	t->wait_on_lock = NULL;
+	list_init(&t->donations);
+
 	t->magic = THREAD_MAGIC;
 }
 
